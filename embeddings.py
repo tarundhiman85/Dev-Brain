@@ -5,6 +5,7 @@ from threading import Lock
 import numpy as np
 
 from config import get_settings
+from llm.ollama_client import embed_texts
 
 
 class Embedder:
@@ -17,7 +18,7 @@ class Embedder:
             if not key or not key.get_secret_value():
                 raise ValueError("OPENAI_API_KEY is required for OpenAI embeddings")
             self.client = OpenAI(api_key=key.get_secret_value(), timeout=60, max_retries=3)
-        else:
+        elif self.settings.embedding_provider == "local":
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")
             self.model.eval()
@@ -29,6 +30,8 @@ class Embedder:
             response = self.client.embeddings.create(model="text-embedding-3-small", input=texts,
                                                        dimensions=1536)
             vectors = [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+        elif self.settings.embedding_provider == "ollama":
+            vectors = embed_texts(str(self.settings.ollama_base_url), self.settings.ollama_embedding_model, texts)
         else:
             # Token IDs are passed directly to avoid decode/re-encode token growth.
             with self.lock:

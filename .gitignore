@@ -4,3 +4,8 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .tmp/
+frontend/node_modules/
+frontend/.next/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+frontend/.env.local
