@@ -171,11 +171,12 @@ class Orchestrator:
 
     async def run_tool(
         self, name: str, arguments: str, include_evidence: bool, progress: ToolProgress | None,
+        *, explicit_command: bool = False,
     ) -> tuple[str, ToolStep]:
         started = perf_counter()
         if progress:
             progress("tool_start", {"tool": name})
-        observation, step = await self.observe(name, arguments)
+        observation, step = await self.observe(name, arguments, explicit_command=explicit_command)
         step.latency_ms = round((perf_counter() - started) * 1000, 2)
         if include_evidence and step.status == "ok":
             step.observation = observation
@@ -183,7 +184,9 @@ class Orchestrator:
             progress("tool_end", step.model_dump(mode="json"))
         return observation, step
 
-    async def observe(self, name: str, raw_arguments: str) -> tuple[str, ToolStep]:
+    async def observe(
+        self, name: str, raw_arguments: str, *, explicit_command: bool = False,
+    ) -> tuple[str, ToolStep]:
         arguments = None
         try:
             parsed = json.loads(raw_arguments)
@@ -195,7 +198,7 @@ class Orchestrator:
             error = "Tool arguments must be a valid JSON object."
         else:
             try:
-                if self.allowed_tools is not None and name not in self.allowed_tools:
+                if not explicit_command and self.allowed_tools is not None and name not in self.allowed_tools:
                     raise ToolError("This tool is unavailable in the selected routing mode.")
                 async with asyncio.timeout(60):
                     result = await self.tools.invoke(name, arguments)

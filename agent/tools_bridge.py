@@ -1,8 +1,11 @@
 """Expose Phase 2 capabilities and Tavily to the agent."""
 from dataclasses import dataclass
+import asyncio
 from typing import Annotated, Any
 
 import httpx
+from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from openai.types.chat import ChatCompletionToolParam
@@ -16,15 +19,32 @@ from mcp_servers import github_mcp, kb_mcp
 class ToolBridge:
     http: httpx.AsyncClient
     tavily_api_key: str | None
+    allow_keyless_search: bool = False
 
     async def web_search(
         self, query: Annotated[str, Field(min_length=1, max_length=400)]
     ) -> dict[str, Any]:
         """Search public web sources for current technical information."""
-        if not self.tavily_api_key:
-            raise ToolError("Web search requires TAVILY_API_KEY.")
         if not query.strip():
             raise ToolError("Web search requires a nonblank query.")
+        if not self.tavily_api_key:
+            if not self.allow_keyless_search:
+                raise ToolError("Web search requires TAVILY_API_KEY.")
+            for backend in ("auto", "brave,bing,mojeek"):
+                try:
+                    results = await asyncio.to_thread(
+                        DDGS(timeout=8).text, query.strip(), max_results=5, backend=backend,
+                    )
+                    if results:
+                        break
+                except DDGSException:
+                    continue
+            else:
+                raise ToolError("Public web search returned no results or is temporarily unavailable.")
+            return {"results": [
+                {"title": item["title"], "url": item["href"], "content": item["body"]}
+                for item in results
+            ]}
         response = await self.http.post(
             "https://api.tavily.com/search",
             headers={"Authorization": f"Bearer {self.tavily_api_key}"},

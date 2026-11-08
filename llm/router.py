@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Literal
+from urllib.parse import quote
 from openai import OpenAIError
 
 from agent.orchestrator import ChatRequest, ChatResponse, Orchestrator, ToolProgress
@@ -20,6 +21,7 @@ _TOOL_CUES = re.compile(
     re.IGNORECASE,
 )
 _GITHUB_CUES = re.compile(r"\b(?:github|pull requests?|prs?)\b", re.IGNORECASE)
+_WEB_COMMAND = re.compile(r"^(?:please\s+)?(?:search the web for|web search for|look up on the web)\s+(.+)$", re.IGNORECASE)
 _REPOSITORY = re.compile(r"(?<![\w./-])(?:https://github\.com/)?([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)")
 _PR_NUMBER = re.compile(r"\b(?:pull request|pr)\s*#?(\d{1,10})\b|/pull/(\d{1,10})\b", re.IGNORECASE)
 _PR_COMMAND = re.compile(r"^(?:please\s+)?(?:list|show|get|fetch|summarize)\b", re.IGNORECASE)
@@ -92,6 +94,18 @@ def github_answer(tool: str, result: dict[str, Any], repo: str) -> str:
     return "\n\n".join(sections)
 
 
+def web_answer(result: dict[str, Any]) -> str:
+    rows = []
+    for item in result.get("results", []):
+        url = item["url"]
+        if not url.lower().startswith(("https://", "http://")):
+            continue
+        title = re.sub(r"([\\\[\]])", r"\\\1", item["title"])
+        link = quote(url, safe=":/?&=%#@+;,~!$*'-._")
+        rows.append(f"- [{title}]({link}) — {' '.join(item['content'].split())}")
+    return "\n\n".join(["Web search results", "\n".join(rows)]) if rows else "No web results found."
+
+
 def classify(request: RoutedRequest) -> tuple[Backend, str]:
     if request.mode != "auto":
         return request.mode, "explicit_mode"
@@ -121,10 +135,17 @@ class LLMRouter:
         github_request = request.mode == "local" and any(
             _GITHUB_CUES.search(prompt) for prompt in [request.prompt, *(turn.prompt for turn in request.history)]
         )
-        if github_request and self.local_github is not None:
+        web_request = _WEB_COMMAND.fullmatch(request.prompt) if request.mode == "local" else None
+        if web_request and self.local_github is not None:
+            query = web_request.group(1).strip()
+            if not re.search(r"\bmodel context protocol\b", query, re.IGNORECASE):
+                query = re.sub(r"\bmcp\b", "Model Context Protocol (MCP)", query, flags=re.IGNORECASE)
+            result = await self.run_local_command(("web_search", {"query": query}), request.include_evidence, progress)
+            reason, model = "local_web_search", "Web search tool"
+        elif github_request and self.local_github is not None:
             reason = "local_github_tools"
             if command := explicit_github_tool(request.prompt):
-                result = await self.run_github_command(command, request.include_evidence, progress)
+                result = await self.run_local_command(command, request.include_evidence, progress)
                 model = "GitHub tool"
             else:
                 try:
@@ -166,20 +187,20 @@ class LLMRouter:
             route_reason=reason, fallback=fallback, latency_ms=round((perf_counter() - started) * 1000, 2),
         )
 
-    async def run_github_command(
+    async def run_local_command(
         self, command: tuple[str, dict[str, str | int]], include_evidence: bool,
         progress: ToolProgress | None,
     ) -> ChatResponse:
         assert self.local_github is not None
         name, arguments = command
         observation, step = await self.local_github.run_tool(
-            name, json.dumps(arguments), include_evidence, progress,
+            name, json.dumps(arguments), include_evidence, progress, explicit_command=True,
         )
         if step.status == "error":
-            answer = step.error or "GitHub request failed."
+            answer = step.error or "Tool request failed."
         else:
             result = json.loads(observation)
-            answer = github_answer(name, result, str(arguments["repo_name"]))
+            answer = web_answer(result) if name == "web_search" else github_answer(name, result, str(arguments["repo_name"]))
             if step.truncated:
-                answer += "\n\nSome tool output was truncated. Open the PR for the complete details."
+                answer += "\n\nSome tool output was truncated. Open the linked sources for complete details."
         return ChatResponse(answer=answer, trace=[step])

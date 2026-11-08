@@ -118,7 +118,7 @@ matches, cosine similarity. A retrieved source may not be cited in the answer.
 | Routing mode | Behavior |
 | --- | --- |
 | **Auto** | Uses prompt and history cues to route routine chat to Ollama and complex or tool-dependent work to the cloud agent. |
-| **Local Only** | Uses Ollama for chat and supports read-only GitHub PR listing and details with a tool-capable model. The GitHub tool contacts GitHub directly. |
+| **Local Only** | Uses Ollama for chat and supports read-only GitHub PR commands and explicit web searches. These tools contact external services directly. |
 | **Cloud Only** | Uses the OpenAI agent and its available tools. |
 
 The UI saves conversations in the browser and sends up to eight previous turns
@@ -126,6 +126,10 @@ with each prompt. Temperature follows the selected model's default unless you
 enable a custom value. Cloud requests can send conversation history and retrieved
 material to OpenAI. Tavily receives web search queries. Keep credentials in the
 root `.env` and keep the unauthenticated API bound to loopback for personal use.
+
+In Local Only, start a prompt with `Search the web for` to see public search
+results without OpenAI. DevBrain sends the search terms to Tavily if configured
+or to public search providers through DDGS otherwise. Use public search terms.
 
 ## Architecture
 

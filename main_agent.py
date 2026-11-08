@@ -57,8 +57,9 @@ async def lifespan(app: FastAPI):
             base_url=str(get_settings().ollama_base_url).rstrip("/") + "/v1/",
             api_key="ollama", http_client=local_http, max_retries=0,
         ))
+        tavily_key = settings.tavily_api_key.get_secret_value().strip() if settings.tavily_api_key else None
         local_github = Orchestrator(
-            local_api, settings.ollama_chat_model, ToolBridge(local_http, None),
+            local_api, settings.ollama_chat_model, ToolBridge(local_http, tavily_key, allow_keyless_search=True),
             allowed_tools=frozenset({"list_recent_prs", "fetch_pr_details"}),
             system_prompt=LOCAL_GITHUB_PROMPT,
         )
@@ -69,9 +70,8 @@ async def lifespan(app: FastAPI):
                 AsyncOpenAI(api_key=api_key.get_secret_value().strip(), timeout=30, max_retries=1)
             )
             http = await stack.enter_async_context(httpx.AsyncClient(timeout=15))
-            tavily_key = settings.tavily_api_key
             cloud = Orchestrator(client, model, ToolBridge(
-                http, tavily_key.get_secret_value().strip() if tavily_key else None,
+                http, tavily_key,
             ))
         app.state.router = LLMRouter(
             OllamaClient(local_http, settings.ollama_chat_model), cloud,

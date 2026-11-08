@@ -96,8 +96,30 @@ def test_local_github_commands_use_read_only_tool_directly(prompt, tool, argumen
     response = asyncio.run(router.chat(request))
     assert response.backend == "local" and response.route_reason == "local_github_tools"
     assert "PR #42" in response.answer and response.trace[0].tool == tool
-    local_github.run_tool.assert_awaited_once_with(tool, json.dumps(arguments), False, None)
+    local_github.run_tool.assert_awaited_once_with(tool, json.dumps(arguments), False, None, explicit_command=True)
     local_github.chat.assert_not_awaited()
+    cloud.chat.assert_not_awaited()
+
+
+def test_local_web_search_uses_only_explicit_query():
+    cloud = AsyncMock()
+    local = Mock(model="local-test-model")
+    local_tools = AsyncMock()
+    observation = {"results": [{"url": "https://example.com/mcp", "title": "MCP", "content": "A result"}]}
+    local_tools.run_tool.return_value = (json.dumps(observation), ToolStep(tool="web_search", status="ok"))
+    router = LLMRouter(local, cloud, local_github=local_tools)
+    request = RoutedRequest(
+        mode="local", prompt="search the web for latest recommend practices for mcp",
+        history=[{"prompt": "List recent PRs in private/repo", "answer": "A private PR"}],
+    )
+    result = asyncio.run(router.chat(request))
+    assert result.backend == "local" and "[MCP](https://example.com/mcp)" in result.answer
+    assert result.trace[0].tool == "web_search"
+    local_tools.run_tool.assert_awaited_once_with(
+        "web_search", json.dumps({"query": "latest recommend practices for Model Context Protocol (MCP)"}),
+        False, None, explicit_command=True,
+    )
+    local_tools.chat.assert_not_awaited()
     cloud.chat.assert_not_awaited()
 
 
