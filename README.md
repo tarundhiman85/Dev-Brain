@@ -1,186 +1,204 @@
-# DevBrain — Phase 1
+# DevBrain
 
-Local Markdown and GitHub PR JSON → recursive token chunks → embeddings →
-PostgreSQL/pgvector → FastAPI semantic retrieval. This phase returns matching
-chunks; it does not generate an LLM answer.
+DevBrain is a self-hosted developer assistant. Chat with a local Ollama model,
+or use the cloud agent to search your indexed notes, inspect live GitHub pull
+requests, and look up public technical information. The browser workspace shows
+tool activity and expandable retrieved sources.
 
-## 1. Prerequisites and install
+## Quick start on Windows
 
-Install Python 3.11+ and Docker Desktop (Linux containers). Run from this directory:
+### 1. Install the prerequisites
+
+- Python 3.11 or newer for the FastAPI backend.
+- Node.js 20.9 or newer for the Next.js frontend.
+- Ollama for local chat. Install Docker with Compose if you also want to run
+  the PostgreSQL knowledge base.
+
+Clone and configure the project from PowerShell:
 
 ```powershell
+git clone https://github.com/tarundhiman85/Dev-Brain.git
+cd Dev-Brain
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-On Linux/macOS use `python3 -m venv .venv`, `source .venv/bin/activate`,
-and `cp .env.example .env` instead. The remaining Python/Docker commands are the same.
-Dependencies have compatible version ranges. `requirements.lock.txt` records the
-validated Windows/Python 3.14 environment; use it on matching platforms with
-`python -m pip install -r requirements.lock.txt`. Other Python/platform versions
-should resolve `requirements.txt` and freeze their validated environment.
+On macOS or Linux, use `python3 -m venv .venv`,
+`source .venv/bin/activate`, and `cp .env.example .env`.
+If you already have a `.env`, add missing settings from the template instead
+of replacing it.
 
-## 2. Start PostgreSQL
+### 2. Start Ollama and the API
 
-```sh
+Start the Ollama desktop app, or run `ollama serve` in a separate terminal if
+Ollama is stopped. Then pull the default chat model and start the API:
+
+```powershell
+ollama pull llama3.2
+python -m uvicorn main_ui_bridge:app --host 127.0.0.1 --port 8001
+```
+
+If you already have another model installed, use `ollama list` to find its
+exact tag and set `OLLAMA_CHAT_MODEL` in the root `.env` before starting the API.
+Local chat works without PostgreSQL or an OpenAI key.
+
+### 3. Start the frontend
+
+In a second terminal at the repository root:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [DevBrain](http://127.0.0.1:3000), select **Local Only**, and send
+`Explain Python tuples with a short example.` If PowerShell blocks the npm
+script shim, use `npm.cmd` in place of `npm`.
+
+The UI defaults to `http://127.0.0.1:8001` for API calls. For a different API URL,
+copy `frontend/.env.example` to `frontend/.env.local` and edit
+`NEXT_PUBLIC_DEVBRAIN_API_URL`. If the browser uses a different origin,
+set `DEVBRAIN_UI_ORIGINS` in the root `.env` to a JSON array of exact origins
+and restart the API. The default origins are `http://127.0.0.1:3000` and
+`http://localhost:3000`.
+
+## Enable the knowledge base and cloud tools
+
+### 1. Start PostgreSQL and index sample documents
+
+From the repository root, with the Python environment activated:
+
+```powershell
 docker compose up -d --wait
-```
-
-PostgreSQL listens on localhost:5432 and stores data in a named volume. Set a
-password in `.env`; keep `DATABASE_URL` consistent with the PostgreSQL variables
-(URL-encode special characters in the URL). Changing the compose password does
-not change credentials in an existing volume. The app/ingestion automatically
-creates the vector extension, tables, and HNSW cosine index on first start. The
-initial database user must have permission to create the extension. In a hosted
-deployment, have an administrator enable it and use a dedicated application role.
-
-## 3. Choose embeddings
-
-The default `EMBEDDING_PROVIDER=local` downloads
-`sentence-transformers/all-MiniLM-L6-v2` on first use (internet required; cached
-afterward), runs on CPU, and produces 384-dimensional vectors. Its shorter model
-context is handled by embedding token windows, taking a token-count-weighted
-mean, and normalizing the final vector. This covers the entire 800-token chunk
-without silent truncation, but long-chunk pooling can reduce retrieval precision.
-
-For OpenAI set in `.env`:
-
-```dotenv
-EMBEDDING_PROVIDER=openai
-OPENAI_API_KEY=your-key
-```
-
-This uses `text-embedding-3-small` with 1536 dimensions. Ingested content and
-queries are sent to OpenAI and API charges apply. The OpenAI SDK supplies bounded
-retries/timeouts. All returned vectors are checked for dimensions, finite values,
-and nonzero norms before normalization.
-
-**Choose the provider before initializing the database.** A persisted model and
-preprocessing identity prevents mixing incompatible vectors. To change providers,
-create a fresh database, update `DATABASE_URL`, and re-ingest. Schema creation is
-bootstrap-only, not a migration system; use versioned migrations for later schema
-changes. Do not change embedding settings while an existing process is running.
-
-## 4. Ingest your documents
-
-```sh
 python ingest.py examples
-python ingest.py /path/to/your/notes-and-exports
 ```
 
-The scanner recursively loads UTF-8 `.md` files and `.json` PR exports. Keep the
-input directory dedicated to these formats; unrelated JSON fails validation.
-Markdown PR exports can also be ingested as ordinary Markdown. JSON may be one
-PR object or a list:
+The default embedding provider is local MiniLM and may download the model on
+first use. Ingestion creates the pgvector schema and indexes the example
+Markdown note and archived PR. To index your own data, run
+`python ingest.py path/to/notes-and-pr-exports`. Keep the input directory
+limited to Markdown and supported PR JSON exports.
 
-```json
-{
-  "number": 42,
-  "title": "Add API retries",
-  "html_url": "https://github.com/owner/repository/pull/42",
-  "body": "Retry transient failures with exponential backoff.",
-  "diff": "- fetch()\n+ fetch_with_retry()",
-  "comments": ["Bound retries", {"body": "Respect Retry-After"}]
-}
-```
+Re-ingesting a source replaces its chunks. Deleted or moved files are not
+automatically pruned. If you change the embedding provider or model, create a
+fresh database and re-ingest to keep vectors compatible. The chat model and
+embedding provider are configured independently.
+[Ingestion format and database setup](README_Phase1.md)
 
-`title` is required. `body`, `diff`, `comments`, `number`, and `url`/`html_url` are
-optional. Sample data is synthetic; live GitHub fetching is outside this phase.
-Source IDs use a PR URL when present, otherwise the absolute file URI plus PR
-number/list position. Markdown uses its absolute file URI. Keep paths stable and
-use PR URLs to make replacement reliable.
+### 2. Configure cloud chat and optional services
 
-Chunks use `RecursiveCharacterTextSplitter`, `cl100k_base` token counting, size
-800, and target overlap 100. Paragraphs, lines, and words are preferred split
-boundaries; overlap can be shorter at those boundaries. Each chunk stores source
-type, title, path/URL, and chunk index in JSONB (the Python ORM attribute is
-`source_metadata` because SQLAlchemy reserves `metadata`).
+Set the required values in the root `.env`, then restart the chat API.
 
-Ingestion batches embeddings/inserts in groups of 32 and replaces each source in
-one transaction under a source-specific advisory lock. Re-running does not
-duplicate that source, and a failed replacement retains its old chunks. Empty
-Markdown clears that source's chunks. Completed sources remain committed if a
-later file fails; fix the error and rerun. Deleted/moved files and removed PRs are
-not automatically pruned. Whole files and their chunk lists are held in memory;
-split unusually large exports before ingestion.
+| Setting | Use |
+| --- | --- |
+| `OPENAI_API_KEY` | Required for cloud chat and the evaluation judge. Also required when using OpenAI embeddings. |
+| `DEVBRAIN_AGENT_MODEL` | A tool-capable OpenAI model available to your account. Required for cloud chat. |
+| `DATABASE_URL` | SQLAlchemy PostgreSQL URI. Match the Compose credentials, database name, and host port. |
+| `EMBEDDING_PROVIDER` | `local` for MiniLM, `ollama` for Ollama embeddings, or `openai` for OpenAI embeddings. Must match the indexed database. |
+| `GITHUB_TOKEN` | Enables authorized private-repository reads. Public repositories can use unauthenticated access within GitHub's limits. |
+| `TAVILY_API_KEY` | Enables public web search. |
+| `OLLAMA_BASE_URL`, `OLLAMA_CHAT_MODEL` | Local Ollama endpoint and installed chat model. |
+| `DEVBRAIN_ALLOW_CLOUD_FALLBACK` | Defaults to `false`. When enabled, Auto can retry failed local chat through the configured cloud agent. |
 
-## 5. Run and query
+### 3. Try a tool-backed conversation
 
-```sh
-uvicorn main:app --host 127.0.0.1 --port 8000
-```
+In the browser, choose **Cloud Only** and send one of these prompts:
 
-Open [Swagger UI](http://127.0.0.1:8000/docs) or run (Bash):
+- **Knowledge base:** `Search my indexed notes for how we handle GitHub rate limits. Cite the archived PR.`
+- **Live GitHub:** `List the three most recent PRs in octocat/Hello-World.`
+- **Web:** `Search the web for the current pgvector HNSW index options and cite your sources.`
 
-```sh
-curl -X POST http://127.0.0.1:8000/api/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"How do we handle GitHub rate limits?","top_k":3}'
-```
+Open **Tool activity** to inspect arguments, status, and duration. Open
+**Retrieved sources** to see source links or document excerpts and, for vector
+matches, cosine similarity. A retrieved source may not be cited in the answer.
 
-PowerShell:
+| Routing mode | Behavior |
+| --- | --- |
+| **Auto** | Uses prompt and history cues to route routine chat to Ollama and complex or tool-dependent work to the cloud agent. |
+| **Local Only** | Sends chat to Ollama. This route has no tool access and does not fall back to the cloud agent. |
+| **Cloud Only** | Uses the OpenAI agent and its available tools. |
+
+The UI saves conversations in the browser and sends up to eight previous turns
+with each prompt. Temperature follows the selected model's default unless you
+enable a custom value. Cloud requests can send conversation history and retrieved
+material to OpenAI. Tavily receives web search queries. Keep credentials in the
+root `.env` and keep the unauthenticated API bound to loopback for personal use.
+
+## Architecture
+
+| Layer | Responsibility |
+| --- | --- |
+| [Next.js workspace](frontend/) | Stores chat sessions in the browser, sends prompts and routing preferences, and renders Markdown, traces, and sources. |
+| [FastAPI chat API](main_agent.py) | Exposes JSON and SSE chat endpoints, validates requests, and permits configured browser origins. |
+| [Hybrid router](llm/router.py) | Applies the requested mode and chooses Ollama or the cloud agent. |
+| [Agent loop](agent/orchestrator.py) | Lets the cloud model select tools, runs up to six tool calls, and synthesizes an answer from their observations. |
+| [Tool bridge](agent/tools_bridge.py) | Calls the same KB and GitHub functions used by the standalone MCP servers. Tavily supplies web search. |
+| [Ingestion](ingest.py) and [retrieval](retrieval.py) | Chunks Markdown and archived PRs, stores embeddings in PostgreSQL, and searches pgvector by cosine distance. |
+| [Evaluation harness](eval/eval_harness.py) | Runs golden questions against the chat API and scores retrieval, faithfulness, hallucination rate, and correctness. |
+
+The browser sends one request per turn. The API routes it either to Ollama
+for generation or to the cloud agent, which can call the knowledge base,
+GitHub, and web tools. The streaming endpoint sends tool events as they happen
+and delivers the synthesized answer in a final event. The MCP servers can
+also run independently over stdio for clients such as Claude Desktop.
+
+## Use the API directly
+
+With the chat API running on port 8001:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/query -ContentType application/json -Body '{"query":"How do we handle GitHub rate limits?","top_k":3}'
+$body = @{ prompt = 'Explain Python tuples'; mode = 'local' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/v1/agent/chat -ContentType 'application/json' -Body $body
 ```
 
-Response shape:
+The JSON response includes the answer, selected backend and model, latency,
+fallback status, and tool trace. Set `include_evidence` to `true` to include the
+bounded observations the model saw. Browser clients can use
+`POST /api/v1/agent/chat/stream` with the same request fields. Interactive
+API documentation is at [port 8001 /docs](http://127.0.0.1:8001/docs).
 
-```json
-{
-  "matches": [
-    {
-      "id": "7d53a91d-be34-4ed5-9faa-c8730f5f9501",
-      "content": "# Add retry handling ...",
-      "metadata": {"source_type":"github_pr","title":"Add retry handling","chunk_index":0},
-      "distance": 0.18
-    }
-  ]
-}
-```
-
-Smaller cosine distance means closer (typically 0–2); this is not a probability.
-`top_k` defaults to 3 and must be an integer from 1 to 50. Queries must be
-nonblank and at most 8000 characters. Empty databases return `{"matches":[]}`.
-HNSW search is approximate; small datasets may use PostgreSQL's exact sequential
-scan. Database queries have a 15-second statement timeout. Dependency failures
-return 503 without exposing credentials/content in the HTTP response.
-
-`GET /health` checks database connectivity. Startup validates schema configuration
-and loads the embedding client/model. This personal local API has no
-authentication: keep it bound to localhost; add authentication, TLS, quotas, and
-an appropriately restricted database role before exposing it to other users.
-
-## 6. Verify
-
-```sh
-python -m pytest -q
-```
-
-Offline tests cover parsing, token bounds, request validation, and empty results.
-Set `RUN_MODEL_TESTS=1` to also download MiniLM and verify normalized embeddings
-for both short inputs and inputs exceeding its context window (local provider only).
-An optional database test checks cosine retrieval, replacement, and rollback using
-synthetic embeddings. Run against a **disposable test database**, never a populated
-knowledge base (synthetic vectors share its model configuration):
+To run semantic search independently, start the Phase 1 API on port 8000.
+It exposes `POST /api/v1/query` and `GET /health`.
 
 ```powershell
-$env:DATABASE_URL='postgresql+psycopg://devbrain:devbrain_local@localhost:5432/devbrain_test'
-$env:RUN_DB_TESTS='1'
-python -m pytest -q
-Remove-Item Env:RUN_DB_TESTS
-Remove-Item Env:DATABASE_URL
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Create `devbrain_test` first with `docker compose exec postgres createdb -U devbrain devbrain_test`.
-On Bash set these variables as command prefixes instead. To verify real model
-loading and semantic quality, ingest `examples` and query the running API as above.
+## Verify and troubleshoot
 
-Stop with `docker compose down`; the database volume remains. Back up the volume
-or use `pg_dump` before infrastructure/schema changes.
+```powershell
+python -m pytest -q
+cd frontend
+npm run typecheck
+npm run build
+```
 
-References: [pgvector SQLAlchemy integration](https://github.com/pgvector/pgvector-python#sqlalchemy),
-[recursive token splitting](https://reference.langchain.com/python/langchain-text-splitters/base/TextSplitter/from_tiktoken_encoder),
-[Sentence Transformer context limits](https://www.sbert.net/examples/sentence_transformer/applications/computing-embeddings/README.html).
+| Symptom | Check |
+| --- | --- |
+| The browser cannot reach DevBrain | Check the API is running on port 8001 and the browser origin is in `DEVBRAIN_UI_ORIGINS`. |
+| Ollama cannot answer | Run `ollama list` and check the service and `OLLAMA_CHAT_MODEL` tag. |
+| Cloud chat returns 503 | Check that both `OPENAI_API_KEY` and `DEVBRAIN_AGENT_MODEL` are set, then restart the API. |
+| Knowledge base search returns no useful matches | Check that ingestion targeted the same database and embedding configuration as the chat API. Try the bundled example query first. |
+| GitHub or web tools fail | Verify repository access or the Tavily key, then inspect the tool error in the trace. |
+
+To run the golden evaluation, follow the dedicated evaluation guide to create
+and index a fixture database before starting the API against that database:
+
+```powershell
+python -m eval.eval_harness --mode cloud --label baseline --output .tmp/eval/baseline.json
+```
+
+Evaluation uses a cloud judge and requires an OpenAI key, even when comparing
+against Local Only chat.
+
+## Detailed guides
+
+1. [Phase 1 · PostgreSQL, ingestion, and semantic search](README_Phase1.md)
+2. [Phase 2 · GitHub and knowledge base MCP servers](README_Phase2.md)
+3. [Phase 3 · Agent tools, API calls, and conversation history](README_Phase3.md)
+4. [Phase 4 · Ollama, cloud routing, embeddings, and benchmarking](README_Phase4.md)
+5. [Phase 5 · Golden dataset and evaluation reports](README_Phase5.md)
+6. [Phase 6 · Next.js workspace, SSE, and CORS](README_Phase6_UI.md)

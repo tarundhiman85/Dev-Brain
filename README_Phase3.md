@@ -33,7 +33,7 @@ authorized to send to those services.
 
 ## Run
 
-Start PostgreSQL and ingest notes using [Phase 1](README.md). Then launch the
+Start PostgreSQL and ingest notes using [Phase 1](README_Phase1.md). Then launch the
 agent API on its own port.
 
 ```powershell

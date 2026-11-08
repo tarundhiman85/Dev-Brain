@@ -31,7 +31,7 @@ in the process environment. Environment variables take precedence.
   may download MiniLM. The OpenAI provider sends query text to OpenAI.
 
 Keep credentials in local configuration. Start PostgreSQL and ingest documents
-as described in [Phase 1](README.md) before trying a search.
+as described in [Phase 1](README_Phase1.md) before trying a search.
 
 ## 3. Test with MCP Inspector
 
