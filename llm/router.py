@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal
 
-from agent.orchestrator import ChatRequest, ChatResponse, Orchestrator
+from agent.orchestrator import ChatRequest, ChatResponse, Orchestrator, ToolProgress
 from llm.ollama_client import OllamaClient, OllamaUnavailable
 
 RoutingMode = Literal["auto", "local", "cloud"]
@@ -62,7 +62,7 @@ class LLMRouter:
     cloud: Orchestrator | None
     allow_cloud_fallback: bool = False
 
-    async def chat(self, request: RoutedRequest) -> RoutedResponse:
+    async def chat(self, request: RoutedRequest, progress: ToolProgress | None = None) -> RoutedResponse:
         started = perf_counter()
         backend, reason = classify(request)
         fallback = False
@@ -82,7 +82,7 @@ class LLMRouter:
                 ])
             messages.append({"role": "user", "content": request.prompt})
             try:
-                result = ChatResponse(answer=await self.local.chat(messages), trace=[])
+                result = ChatResponse(answer=await self.local.chat(messages, request.temperature), trace=[])
             except OllamaUnavailable:
                 if request.mode != "auto" or not self.allow_cloud_fallback or self.cloud is None:
                     raise
@@ -91,7 +91,7 @@ class LLMRouter:
         if backend == "cloud":
             if self.cloud is None:
                 raise CloudUnavailable("Cloud chat requires OPENAI_API_KEY and DEVBRAIN_AGENT_MODEL.")
-            result = await self.cloud.chat(request)
+            result = await self.cloud.chat(request, progress=progress)
             model = self.cloud.model
         else:
             model = self.local.model

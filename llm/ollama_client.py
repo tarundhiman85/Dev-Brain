@@ -13,12 +13,15 @@ class OllamaClient:
     http: httpx.AsyncClient
     model: str
 
-    async def chat(self, messages: list[dict[str, str]]) -> str:
+    async def chat(self, messages: list[dict[str, str]], temperature: float | None = None) -> str:
+        options: dict[str, int | float] = {"num_predict": 1024}
+        if temperature is not None:
+            options["temperature"] = temperature
         try:
             response = await self.http.post(
                 "api/chat",
                 json={"model": self.model, "messages": messages, "stream": False,
-                      "options": {"num_predict": 1024}},
+                      "options": options},
             )
             response.raise_for_status()
             data = response.json()

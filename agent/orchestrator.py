@@ -3,7 +3,8 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Annotated, Any, Literal
+from time import perf_counter
+from typing import Annotated, Any, Callable, Literal
 
 from mcp.server.fastmcp.exceptions import ToolError
 from openai import AsyncOpenAI
@@ -41,6 +42,7 @@ class ChatRequest(BaseModel):
     prompt: Prompt
     history: list[Turn] = Field(default_factory=list, max_length=8)
     include_evidence: bool = False
+    temperature: float | None = Field(default=None, ge=0, le=2)
 
 
 class ToolStep(BaseModel):
@@ -49,6 +51,7 @@ class ToolStep(BaseModel):
     status: Literal["ok", "error"]
     error: str | None = None
     truncated: bool = False
+    latency_ms: float | None = None
     observation: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
@@ -65,6 +68,9 @@ class ChatResponse(BaseModel):
 
 class AgentProtocolError(RuntimeError):
     pass
+
+
+ToolProgress = Callable[[Literal["tool_start", "tool_end"], dict[str, Any]], None]
 
 
 def bounded_observation(result: Any) -> tuple[str, bool]:
@@ -94,7 +100,7 @@ class Orchestrator:
         self.model = model
         self.tools = tools
 
-    async def chat(self, request: ChatRequest) -> ChatResponse:
+    async def chat(self, request: ChatRequest, progress: ToolProgress | None = None) -> ChatResponse:
         today = datetime.now(timezone.utc).date().isoformat()
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": f"{SYSTEM_PROMPT}\nCurrent UTC date is {today}."}
@@ -120,6 +126,7 @@ class Orchestrator:
                 parallel_tool_calls=False,
                 max_completion_tokens=4096,
                 store=False,
+                **({"temperature": request.temperature} if request.temperature is not None else {}),
             )
             if not completion.choices:
                 raise AgentProtocolError("The model returned no choices.")
@@ -146,10 +153,16 @@ class Orchestrator:
                     "function": {"name": call.function.name, "arguments": call.function.arguments},
                 }],
             })
+            started = perf_counter()
+            if progress:
+                progress("tool_start", {"tool": call.function.name})
             observation, step = await self.observe(call.function.name, call.function.arguments)
+            step.latency_ms = round((perf_counter() - started) * 1000, 2)
             if request.include_evidence and step.status == "ok":
                 step.observation = observation
             trace.append(step)
+            if progress:
+                progress("tool_end", step.model_dump(mode="json"))
             messages.append({"role": "tool", "tool_call_id": call.id, "content": observation})
 
         raise AgentProtocolError("The model did not finish within the tool budget.")
