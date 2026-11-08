@@ -1,0 +1,10 @@
+[
+  {
+    "number": 42,
+    "title": "Add retry handling for GitHub API rate limits",
+    "url": "https://github.com/example/devbrain/pull/42",
+    "body": "Retry transient GitHub failures with exponential backoff. Respect Retry-After when rate limited.",
+    "diff": "- response = fetch_pr()\n+ response = fetch_pr_with_backoff(max_retries=3)",
+    "comments": [{"body": "Keep retries bounded so ingestion jobs eventually fail visibly."}]
+  }
+]

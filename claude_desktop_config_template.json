@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "devbrain-github": {
+      "command": "C:/path/to/Dev Brain/.venv/Scripts/python.exe",
+      "args": ["-m", "mcp_servers.github_mcp"],
+      "env": {
+        "PYTHONPATH": "C:/path/to/Dev Brain",
+        "GITHUB_TOKEN": "REPLACE_WITH_YOUR_TOKEN"
+      }
+    },
+    "devbrain-kb": {
+      "command": "C:/path/to/Dev Brain/.venv/Scripts/python.exe",
+      "args": ["-m", "mcp_servers.kb_mcp"],
+      "env": {
+        "PYTHONPATH": "C:/path/to/Dev Brain",
+        "DATABASE_URL": "postgresql+psycopg://USER:PASSWORD@localhost:5432/devbrain",
+        "EMBEDDING_PROVIDER": "local"
+      }
+    }
+  }
+}
