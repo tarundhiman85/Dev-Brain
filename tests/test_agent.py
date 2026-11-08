@@ -8,7 +8,9 @@ from openai import AsyncOpenAI
 
 from agent import orchestrator
 from agent.tools_bridge import ToolBridge
-from main_agent import app, get_orchestrator
+from llm.ollama_client import OllamaClient
+from llm.router import LLMRouter
+from main_agent import app, get_router
 
 
 def completion(message, finish_reason="stop"):
@@ -64,7 +66,7 @@ def test_chat_routes_multiple_tools_and_keeps_context(monkeypatch):
     provider = AsyncOpenAI(api_key="test", http_client=httpx.AsyncClient(transport=httpx.MockTransport(model)))
     web = httpx.AsyncClient(transport=httpx.MockTransport(tavily))
     agent = orchestrator.Orchestrator(provider, "test", ToolBridge(web, "test-key"))
-    app.dependency_overrides[get_orchestrator] = lambda: agent
+    app.dependency_overrides[get_router] = lambda: LLMRouter(OllamaClient(web, "test-local"), agent)
     try:
         client = TestClient(app)
         assert client.post("/api/v1/agent/chat", json={"prompt": " "}).status_code == 422
@@ -74,9 +76,10 @@ def test_chat_routes_multiple_tools_and_keeps_context(monkeypatch):
         })
         assert response.status_code == 200
         assert response.json()["answer"] == "PR #42 adds a cache."
+        assert response.json()["backend"] == "cloud"
         assert [step["status"] for step in response.json()["trace"]] == ["ok", "ok"]
     finally:
-        app.dependency_overrides.pop(get_orchestrator)
+        app.dependency_overrides.pop(get_router)
 
         async def close():
             await provider.close()

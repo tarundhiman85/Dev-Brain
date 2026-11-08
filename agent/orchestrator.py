@@ -50,9 +50,15 @@ class ToolStep(BaseModel):
     truncated: bool = False
 
 
+class TokenUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
 class ChatResponse(BaseModel):
     answer: str
     trace: list[ToolStep]
+    usage: TokenUsage | None = None
 
 
 class AgentProtocolError(RuntimeError):
@@ -78,6 +84,8 @@ class Orchestrator:
         messages.append({"role": "user", "content": request.prompt})
         definitions = await self.tools.definitions()
         trace: list[ToolStep] = []
+        usage = TokenUsage()
+        usage_reported = True
 
         for _ in range(MAX_TOOL_CALLS + 1):
             allow_tools = len(trace) < MAX_TOOL_CALLS
@@ -92,13 +100,18 @@ class Orchestrator:
             )
             if not completion.choices:
                 raise AgentProtocolError("The model returned no choices.")
+            if completion.usage is None:
+                usage_reported = False
+            else:
+                usage.prompt_tokens += completion.usage.prompt_tokens
+                usage.completion_tokens += completion.usage.completion_tokens
             choice = completion.choices[0]
             message = choice.message
             if not message.tool_calls:
                 answer = (message.content or message.refusal or "").strip()
                 if not answer or choice.finish_reason == "length":
                     raise AgentProtocolError("The model did not return a complete answer.")
-                return ChatResponse(answer=answer, trace=trace)
+                return ChatResponse(answer=answer, trace=trace, usage=usage if usage_reported else None)
             if not allow_tools or len(message.tool_calls) != 1:
                 raise AgentProtocolError("The model returned an unexpected number of tool calls.")
             call = message.tool_calls[0]
