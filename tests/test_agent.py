@@ -73,11 +73,13 @@ def test_chat_routes_multiple_tools_and_keeps_context(monkeypatch):
         response = client.post("/api/v1/agent/chat", json={
             "prompt": "Compare PR #42 to public caching guidance",
             "history": [{"prompt": "Which repo?", "answer": "team/licensing"}],
+            "include_evidence": True,
         })
         assert response.status_code == 200
         assert response.json()["answer"] == "PR #42 adds a cache."
         assert response.json()["backend"] == "cloud"
         assert [step["status"] for step in response.json()["trace"]] == ["ok", "ok"]
+        assert json.loads(response.json()["trace"][0]["observation"]) == {"body": "Adds a cache"}
     finally:
         app.dependency_overrides.pop(get_router)
 

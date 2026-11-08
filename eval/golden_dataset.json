@@ -1,0 +1,188 @@
+[
+  {
+    "id": "licensing-window",
+    "question": "Using only the indexed DevBrain evaluation fixtures, in the archived licensing rollout, what changed about the offline grace window?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/licensing.md",
+        "text": "changed its offline grace window from 24 hours to 72 hours"
+      }
+    ],
+    "expected_answer": "It increased from 24 hours to 72 hours."
+  },
+  {
+    "id": "licensing-revocation",
+    "question": "Using only the indexed DevBrain evaluation fixtures, does a confirmed revocation wait for the licensing grace window to expire?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/licensing.md",
+        "text": "A confirmed revocation still denies access immediately"
+      }
+    ],
+    "expected_answer": "No. A confirmed revocation denies access immediately."
+  },
+  {
+    "id": "licensing-clock",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what starts the licensing service's offline grace window?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/licensing.md",
+        "text": "The window starts at the last successful entitlement check"
+      }
+    ],
+    "expected_answer": "The last successful entitlement check starts the window."
+  },
+  {
+    "id": "billing-dedupe",
+    "question": "Using only the indexed DevBrain evaluation fixtures, how does the billing worker deduplicate events?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/queue.md",
+        "text": "deduplicates events using the provider event ID"
+      }
+    ],
+    "expected_answer": "It uses the provider event ID."
+  },
+  {
+    "id": "billing-ack",
+    "question": "Using only the indexed DevBrain evaluation fixtures, when does the billing worker acknowledge a message?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/queue.md",
+        "text": "only after the database transaction commits"
+      }
+    ],
+    "expected_answer": "Only after the database transaction commits."
+  },
+  {
+    "id": "billing-dead-letter",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what happens after a billing message fails five attempts?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/queue.md",
+        "text": "Messages that fail five attempts go to the dead-letter queue"
+      }
+    ],
+    "expected_answer": "The message goes to the dead-letter queue."
+  },
+  {
+    "id": "cache-expiry",
+    "question": "Using only the indexed DevBrain evaluation fixtures, how long do project lookup cache entries last?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/cache.md",
+        "text": "expires entries after 15 minutes"
+      }
+    ],
+    "expected_answer": "15 minutes."
+  },
+  {
+    "id": "cache-isolation",
+    "question": "Using only the indexed DevBrain evaluation fixtures, which fields make up a project cache key?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/cache.md",
+        "text": "Cache keys include the tenant ID and project ID"
+      }
+    ],
+    "expected_answer": "Tenant ID and project ID."
+  },
+  {
+    "id": "cache-invalidation",
+    "question": "Using only the indexed DevBrain evaluation fixtures, when do project updates invalidate the cache?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/cache.md",
+        "text": "Project updates invalidate the cache after the write commits"
+      }
+    ],
+    "expected_answer": "After the write commits."
+  },
+  {
+    "id": "canary-start",
+    "question": "Using only the indexed DevBrain evaluation fixtures, how much traffic does a canary release start with?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/deploy.md",
+        "text": "Canary releases begin at 5 percent of traffic"
+      }
+    ],
+    "expected_answer": "5 percent."
+  },
+  {
+    "id": "canary-rollback",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what condition triggers an automatic canary rollback?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/deploy.md",
+        "text": "If the five-minute error rate exceeds 2 percent"
+      }
+    ],
+    "expected_answer": "A five-minute error rate above 2 percent."
+  },
+  {
+    "id": "webhook-signature",
+    "question": "Using only the indexed DevBrain evaluation fixtures, which algorithm and input does the webhook signature verifier use?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/security.md",
+        "text": "HMAC-SHA256 over the raw request body"
+      }
+    ],
+    "expected_answer": "HMAC-SHA256 over the raw request body."
+  },
+  {
+    "id": "webhook-skew",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what timestamp skew is accepted by the webhook verifier?",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/security.md",
+        "text": "rejects timestamps more than 300 seconds from the server clock"
+      }
+    ],
+    "expected_answer": "At most 300 seconds from the server clock."
+  },
+  {
+    "id": "audit-pagination",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what default page size did archived PR #73 set for audit events?",
+    "ground_truth_context": [
+      {
+        "source": "https://github.com/example/devbrain-eval/pull/73",
+        "text": "The default page size is 50"
+      }
+    ],
+    "expected_answer": "50 events per page."
+  },
+  {
+    "id": "audit-tie-break",
+    "question": "Using only the indexed DevBrain evaluation fixtures, how does archived PR #73 break ties between audit events with the same timestamp?",
+    "ground_truth_context": [
+      {
+        "source": "https://github.com/example/devbrain-eval/pull/73",
+        "text": "the event timestamp and event ID to break timestamp ties"
+      }
+    ],
+    "expected_answer": "The cursor includes the event ID as the tie breaker alongside the timestamp."
+  },
+  {
+    "id": "billing-and-cache",
+    "question": "Using only the indexed DevBrain evaluation fixtures, compare when the billing worker acknowledges a message with when the project cache invalidates after an update.",
+    "ground_truth_context": [
+      {
+        "source": "eval/fixtures/queue.md",
+        "text": "only after the database transaction commits"
+      },
+      {
+        "source": "eval/fixtures/cache.md",
+        "text": "after the write commits"
+      }
+    ],
+    "expected_answer": "Both happen after a commit. Billing acknowledges after its database transaction commits, and a project update invalidates the cache after the write commits."
+  },
+  {
+    "id": "licensing-missing",
+    "question": "Using only the indexed DevBrain evaluation fixtures, what is the licensing service's annual subscription price?",
+    "ground_truth_context": [],
+    "expected_answer": "The indexed fixtures do not specify an annual subscription price."
+  }
+]

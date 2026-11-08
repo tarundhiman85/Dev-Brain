@@ -1,0 +1,10 @@
+{
+  "number": 73,
+  "title": "Eval fixture: add cursor pagination to audit events",
+  "url": "https://github.com/example/devbrain-eval/pull/73",
+  "body": "Audit events now use cursor pagination. The default page size is 50. The cursor encodes the event timestamp and event ID to break timestamp ties.",
+  "diff": "- list_events(offset=offset)\n+ list_events(after=cursor, limit=50)",
+  "comments": [
+    "Keep the event ID as the tie breaker."
+  ]
+}

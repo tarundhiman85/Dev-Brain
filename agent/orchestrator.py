@@ -40,6 +40,7 @@ class Turn(BaseModel):
 class ChatRequest(BaseModel):
     prompt: Prompt
     history: list[Turn] = Field(default_factory=list, max_length=8)
+    include_evidence: bool = False
 
 
 class ToolStep(BaseModel):
@@ -48,6 +49,7 @@ class ToolStep(BaseModel):
     status: Literal["ok", "error"]
     error: str | None = None
     truncated: bool = False
+    observation: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class TokenUsage(BaseModel):
@@ -63,6 +65,27 @@ class ChatResponse(BaseModel):
 
 class AgentProtocolError(RuntimeError):
     pass
+
+
+def bounded_observation(result: Any) -> tuple[str, bool]:
+    content = json.dumps(result, ensure_ascii=False)
+    if len(content) <= MAX_OBSERVATION_CHARS:
+        return content, False
+
+    # Keep complete records so evidence remains parseable after truncation.
+    limited: dict[str, Any] = {"_truncated": True}
+    for key, value in result.items():
+        limited[key] = [] if isinstance(value, list) else value
+        if len(json.dumps(limited, ensure_ascii=False)) > MAX_OBSERVATION_CHARS:
+            del limited[key]
+            continue
+        if isinstance(value, list):
+            for item in value:
+                limited[key].append(item)
+                if len(json.dumps(limited, ensure_ascii=False)) > MAX_OBSERVATION_CHARS:
+                    limited[key].pop()
+                    break
+    return json.dumps(limited, ensure_ascii=False), True
 
 
 class Orchestrator:
@@ -124,6 +147,8 @@ class Orchestrator:
                 }],
             })
             observation, step = await self.observe(call.function.name, call.function.arguments)
+            if request.include_evidence and step.status == "ok":
+                step.observation = observation
             trace.append(step)
             messages.append({"role": "tool", "tool_call_id": call.id, "content": observation})
 
@@ -143,10 +168,7 @@ class Orchestrator:
             try:
                 async with asyncio.timeout(60):
                     result = await self.tools.invoke(name, arguments)
-                content = json.dumps(result, ensure_ascii=False)
-                truncated = len(content) > MAX_OBSERVATION_CHARS
-                if truncated:
-                    content = content[:MAX_OBSERVATION_CHARS] + "\n[Tool output truncated]"
+                content, truncated = bounded_observation(result)
                 return content, ToolStep(tool=name, arguments=arguments, status="ok", truncated=truncated)
             except ToolError as exc:
                 error = str(exc)
