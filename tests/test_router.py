@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 import embeddings
-from agent.orchestrator import ChatResponse
+from agent.orchestrator import ChatResponse, ToolStep
 from config import Settings
 from llm.ollama_client import OllamaClient, OllamaUnavailable
 from llm.router import CloudUnavailable, LLMRouter, RoutedRequest, classify
@@ -75,6 +75,30 @@ def test_fallback_requires_auto_and_opt_in():
                 await router.chat(RoutedRequest(prompt=prompt, mode="cloud"))
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(("prompt", "tool", "arguments"), [
+    ("List the 3 most recent pull requests in team/repo.", "list_recent_prs",
+     {"repo_name": "team/repo", "limit": 3}),
+    ("Show details for PR #42 in https://github.com/team/repo.", "fetch_pr_details",
+     {"repo_name": "team/repo", "pr_number": 42}),
+])
+def test_local_github_commands_use_read_only_tool_directly(prompt, tool, arguments):
+    cloud = AsyncMock()
+    local_github = AsyncMock()
+    pr = {"number": 42, "html_url": "https://github.com/team/repo/pull/42",
+          "title": "Test PR", "state": "open"}
+    observation = {"pull_requests": [pr]} if tool == "list_recent_prs" else pr
+    local_github.run_tool.return_value = (json.dumps(observation), ToolStep(tool=tool, status="ok"))
+    local = Mock(model="local-test-model")
+    router = LLMRouter(local, cloud, allow_cloud_fallback=True, local_github=local_github)
+    request = RoutedRequest(mode="local", prompt=prompt)
+    response = asyncio.run(router.chat(request))
+    assert response.backend == "local" and response.route_reason == "local_github_tools"
+    assert "PR #42" in response.answer and response.trace[0].tool == tool
+    local_github.run_tool.assert_awaited_once_with(tool, json.dumps(arguments), False, None)
+    local_github.chat.assert_not_awaited()
+    cloud.chat.assert_not_awaited()
 
 
 def test_ollama_embeddings_share_validation_and_model_identity(monkeypatch):

@@ -49,7 +49,13 @@ python -m uvicorn main_agent:app --host 127.0.0.1 --port 8001
 | JSON `mode` | Behavior |
 | --- | --- |
 | `auto` | Default. Routes routine prompts to Ollama. Long context, code review or implementation cues, and cues for private or current data go to the cloud tool loop. Earlier user prompts also inform routing. |
-| `local` | Uses Ollama with the supplied conversation history. Local chat has no tool access and stays local on failure. |
+| `local` | Uses Ollama with the supplied conversation history. A tool-capable model can list GitHub PRs and inspect PR details, including file changes. |
+
+To try GitHub in Local Only, set `OLLAMA_CHAT_MODEL` to an installed tool-capable
+tag such as `qwen2.5-coder:7b`, configure GitHub access, and restart the API.
+Try `List recent pull requests in owner/repo` or `Show details for PR #42 in owner/repo`.
+Explicit PR commands fetch and display GitHub data directly. Other PR
+questions use Ollama tool calling. Both fetch GitHub data over the network.
 | `cloud` | Uses the OpenAI agent and its tools. Requires cloud credentials. |
 
 The Auto classifier uses rules and character count as a context-size estimate.

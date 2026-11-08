@@ -118,7 +118,7 @@ matches, cosine similarity. A retrieved source may not be cited in the answer.
 | Routing mode | Behavior |
 | --- | --- |
 | **Auto** | Uses prompt and history cues to route routine chat to Ollama and complex or tool-dependent work to the cloud agent. |
-| **Local Only** | Sends chat to Ollama. This route has no tool access and does not fall back to the cloud agent. |
+| **Local Only** | Uses Ollama for chat and supports read-only GitHub PR listing and details with a tool-capable model. The GitHub tool contacts GitHub directly. |
 | **Cloud Only** | Uses the OpenAI agent and its available tools. |
 
 The UI saves conversations in the browser and sends up to eight previous turns

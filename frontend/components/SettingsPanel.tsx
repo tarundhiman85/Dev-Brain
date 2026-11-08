@@ -3,7 +3,7 @@ import type { Mode } from "@/services/api";
 
 const modes = [
   { value: "auto", title: "Auto", description: "Choose the best backend for each prompt.", icon: Sparkles },
-  { value: "local", title: "Local Only", description: "Use Ollama. Tool calls are unavailable.", icon: Cpu },
+  { value: "local", title: "Local Only", description: "Use Ollama with read-only GitHub PR tools.", icon: Cpu },
   { value: "cloud", title: "Cloud Only", description: "Use the cloud agent and its tools.", icon: Cloud },
 ] as const;
 

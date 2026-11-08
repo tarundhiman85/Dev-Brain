@@ -95,15 +95,20 @@ def bounded_observation(result: Any) -> tuple[str, bool]:
 
 
 class Orchestrator:
-    def __init__(self, client: AsyncOpenAI, model: str, tools: ToolBridge) -> None:
+    def __init__(
+        self, client: AsyncOpenAI, model: str, tools: ToolBridge, *,
+        allowed_tools: frozenset[str] | None = None, system_prompt: str = SYSTEM_PROMPT,
+    ) -> None:
         self.client = client
         self.model = model
         self.tools = tools
+        self.allowed_tools = allowed_tools
+        self.system_prompt = system_prompt
 
     async def chat(self, request: ChatRequest, progress: ToolProgress | None = None) -> ChatResponse:
         today = datetime.now(timezone.utc).date().isoformat()
         messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": f"{SYSTEM_PROMPT}\nCurrent UTC date is {today}."}
+            {"role": "system", "content": f"{self.system_prompt}\nCurrent UTC date is {today}."}
         ]
         for turn in request.history:
             messages.extend([
@@ -112,9 +117,22 @@ class Orchestrator:
             ])
         messages.append({"role": "user", "content": request.prompt})
         definitions = await self.tools.definitions()
+        if self.allowed_tools is not None:
+            definitions = [tool for tool in definitions if tool["function"]["name"] in self.allowed_tools]
         trace: list[ToolStep] = []
         usage = TokenUsage()
         usage_reported = True
+
+        async def run_tool(call_id: str, name: str, arguments: str) -> None:
+            messages.append({
+                "role": "assistant", "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                }],
+            })
+            observation, step = await self.run_tool(name, arguments, request.include_evidence, progress)
+            trace.append(step)
+            messages.append({"role": "tool", "tool_call_id": call_id, "content": observation})
 
         for _ in range(MAX_TOOL_CALLS + 1):
             allow_tools = len(trace) < MAX_TOOL_CALLS
@@ -147,25 +165,23 @@ class Orchestrator:
             call = message.tool_calls[0]
             if call.type != "function":
                 raise AgentProtocolError("The model returned an unsupported tool call.")
-            messages.append({
-                "role": "assistant", "tool_calls": [{
-                    "id": call.id, "type": "function",
-                    "function": {"name": call.function.name, "arguments": call.function.arguments},
-                }],
-            })
-            started = perf_counter()
-            if progress:
-                progress("tool_start", {"tool": call.function.name})
-            observation, step = await self.observe(call.function.name, call.function.arguments)
-            step.latency_ms = round((perf_counter() - started) * 1000, 2)
-            if request.include_evidence and step.status == "ok":
-                step.observation = observation
-            trace.append(step)
-            if progress:
-                progress("tool_end", step.model_dump(mode="json"))
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": observation})
+            await run_tool(call.id, call.function.name, call.function.arguments)
 
         raise AgentProtocolError("The model did not finish within the tool budget.")
+
+    async def run_tool(
+        self, name: str, arguments: str, include_evidence: bool, progress: ToolProgress | None,
+    ) -> tuple[str, ToolStep]:
+        started = perf_counter()
+        if progress:
+            progress("tool_start", {"tool": name})
+        observation, step = await self.observe(name, arguments)
+        step.latency_ms = round((perf_counter() - started) * 1000, 2)
+        if include_evidence and step.status == "ok":
+            step.observation = observation
+        if progress:
+            progress("tool_end", step.model_dump(mode="json"))
+        return observation, step
 
     async def observe(self, name: str, raw_arguments: str) -> tuple[str, ToolStep]:
         arguments = None
@@ -179,6 +195,8 @@ class Orchestrator:
             error = "Tool arguments must be a valid JSON object."
         else:
             try:
+                if self.allowed_tools is not None and name not in self.allowed_tools:
+                    raise ToolError("This tool is unavailable in the selected routing mode.")
                 async with asyncio.timeout(60):
                     result = await self.tools.invoke(name, arguments)
                 content, truncated = bounded_observation(result)

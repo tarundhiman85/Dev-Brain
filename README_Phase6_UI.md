@@ -49,7 +49,8 @@ on loopback for personal use because it has no authentication.
 
 ## 3. Use the workspace
 
-- **Auto** chooses a backend. **Local Only** uses Ollama and has no tools.
+- **Auto** chooses a backend. **Local Only** uses Ollama and can list and inspect
+  GitHub PRs with a tool-capable model.
   **Cloud Only** uses the cloud agent and can call GitHub, KB, and web tools.
 - Temperature uses the model default unless you turn off **Model default**.
   Some cloud models require their default temperature.

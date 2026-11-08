@@ -41,8 +41,8 @@ fixture identifier. It does not need to exist on GitHub.
    ```
 
 The CLI defaults to cloud mode to exercise the tool loop. Try `--mode auto`
-to measure routing changes and `--mode local` to see how Ollama answers with
-an empty tool trace. Use `--base-url` for a different agent address or
+to measure routing changes and `--mode local` to see how Ollama answers without
+knowledge base access. Use `--base-url` for a different agent address or
 `--dataset` for another dataset in the same format. The CLI prints summary
 metrics, saves per-case scores and stage errors, and exits with status 1 if
 any case could not be fully evaluated.
